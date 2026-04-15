@@ -1,6 +1,9 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { payments, formatPHP } from '../../lib/mock-data';
+import { useAuthStore } from '../../stores/auth-store';
+import { payments as fallbackPayments, formatPHP, fetchPaymentsForUnit } from '../../lib/mock-data';
+import { PaymentItem } from '../../lib/types';
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
   paid: { label: '완료', color: '#16a34a', bg: '#f0fdf4' },
@@ -9,11 +12,27 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
 };
 
 export default function PaymentsScreen() {
-  const totalPaid = payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.total, 0);
-  const pending = payments.find(p => p.status === 'pending');
+  const user = useAuthStore(s => s.user);
+  const [paymentsList, setPayments] = useState<PaymentItem[]>(fallbackPayments);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await fetchPaymentsForUnit(user.unit_id);
+      if (data.length > 0) setPayments(data);
+    } catch (e) { console.log('Failed to fetch payments:', e); }
+  }, [user]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+  const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
+
+  const totalPaid = paymentsList.filter(p => p.status === 'paid').reduce((s, p) => s + p.total, 0);
+  const pending = paymentsList.find(p => p.status === 'pending');
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
       {/* Summary */}
       <View style={styles.summary}>
         <View style={styles.summaryItem}>
@@ -29,33 +48,37 @@ export default function PaymentsScreen() {
         </View>
       </View>
 
-      {/* Payment List */}
       <Text style={styles.sectionTitle}>납부 내역</Text>
-      {payments.map(p => {
-        const cfg = statusConfig[p.status];
-        return (
-          <View key={p.id} style={styles.card}>
-            <View style={styles.cardLeft}>
-              <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
-              <View>
-                <Text style={styles.cardMonth}>{p.month}</Text>
-                <Text style={styles.cardDetail}>
-                  임대료 {formatPHP(p.rent)} + 관리비 {formatPHP(p.management_fee)}
-                </Text>
-                {p.paid_date && <Text style={styles.cardDate}>납부일: {p.paid_date} · {p.method}</Text>}
+      {paymentsList.length === 0 ? (
+        <View style={{ alignItems: 'center', padding: 40 }}>
+          <Text style={{ color: '#94a3b8' }}>납부 내역이 없습니다. 아래로 당겨서 새로고침.</Text>
+        </View>
+      ) : (
+        paymentsList.map(p => {
+          const cfg = statusConfig[p.status] || statusConfig.pending;
+          return (
+            <View key={p.id} style={styles.card}>
+              <View style={styles.cardLeft}>
+                <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
+                <View>
+                  <Text style={styles.cardMonth}>{p.month}</Text>
+                  <Text style={styles.cardDetail}>
+                    임대료 {formatPHP(p.rent)} + 관리비 {formatPHP(p.management_fee)}
+                  </Text>
+                  {p.paid_date && <Text style={styles.cardDate}>납부일: {p.paid_date} · {p.method}</Text>}
+                </View>
+              </View>
+              <View style={styles.cardRight}>
+                <Text style={styles.cardAmount}>{formatPHP(p.total)}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
+                  <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+                </View>
               </View>
             </View>
-            <View style={styles.cardRight}>
-              <Text style={styles.cardAmount}>{formatPHP(p.total)}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-                <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
-              </View>
-            </View>
-          </View>
-        );
-      })}
+          );
+        })
+      )}
 
-      {/* Pay Button */}
       {pending && (
         <TouchableOpacity style={styles.payBtn}>
           <Ionicons name="card" size={18} color="#fff" />

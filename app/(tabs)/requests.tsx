@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { myRequests } from '../../lib/mock-data';
+import { useAuthStore } from '../../stores/auth-store';
+import { fetchMaintenanceForUnit, submitMaintenanceRequest } from '../../lib/mock-data';
+import { MaintenanceItem } from '../../lib/types';
 
 const statusLabels: Record<string, { label: string; color: string; bg: string }> = {
   open: { label: '접수', color: '#2563eb', bg: '#eff6ff' },
@@ -11,24 +13,44 @@ const statusLabels: Record<string, { label: string; color: string; bg: string }>
 const categoryIcons: Record<string, string> = { plumbing: 'water', electrical: 'flash', ac: 'snow', etc: 'build' };
 
 export default function RequestsScreen() {
+  const user = useAuthStore(s => s.user);
   const [showForm, setShowForm] = useState(false);
-  const [requests, setRequests] = useState(myRequests);
+  const [requests, setRequests] = useState<MaintenanceItem[]>([]);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [category, setCategory] = useState('plumbing');
+  const [refreshing, setRefreshing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit() {
-    if (!title) return;
-    setRequests(prev => [{
-      id: `m_${Date.now()}`, title, description: desc, category,
-      status: 'open', created_at: new Date().toISOString().split('T')[0],
-    }, ...prev]);
-    setTitle(''); setDesc(''); setShowForm(false);
-    Alert.alert('접수 완료', '민원이 접수되었습니다. 담당자가 확인 후 처리합니다.');
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await fetchMaintenanceForUnit(user.unit_id);
+      setRequests(data);
+    } catch (e) { console.log('Failed to fetch requests:', e); }
+  }, [user]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
+
+  async function handleSubmit() {
+    if (!title || !user) return;
+    setSubmitting(true);
+    try {
+      await submitMaintenanceRequest(user.unit_id, title, desc, category);
+      setTitle(''); setDesc(''); setShowForm(false);
+      Alert.alert('접수 완료', '민원이 접수되었습니다. 담당자가 확인 후 처리합니다.');
+      await loadData(); // 새로고침
+    } catch (e) {
+      Alert.alert('오류', '민원 접수에 실패했습니다. 다시 시도해주세요.');
+    }
+    setSubmitting(false);
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
       <TouchableOpacity style={styles.newBtn} onPress={() => setShowForm(!showForm)}>
         <Ionicons name={showForm ? 'close' : 'add'} size={20} color="#fff" />
         <Text style={styles.newBtnText}>{showForm ? '취소' : '새 민원 접수'}</Text>
@@ -56,8 +78,8 @@ export default function RequestsScreen() {
           <TextInput style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
             value={desc} onChangeText={setDesc} placeholder="상세 설명..." multiline />
 
-          <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
-            <Text style={styles.submitText}>접수하기</Text>
+          <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
+            <Text style={styles.submitText}>{submitting ? '접수 중...' : '접수하기'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -67,6 +89,7 @@ export default function RequestsScreen() {
         <View style={styles.empty}>
           <Ionicons name="checkmark-circle" size={40} color="#d1d5db" />
           <Text style={styles.emptyText}>접수된 민원이 없습니다</Text>
+          <Text style={styles.emptySubtext}>아래로 당겨서 새로고침</Text>
         </View>
       ) : (
         requests.map(r => {
@@ -110,6 +133,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 15, fontWeight: '700', color: '#1e293b', marginHorizontal: 16, marginTop: 16, marginBottom: 12 },
   empty: { alignItems: 'center', padding: 40 },
   emptyText: { fontSize: 14, color: '#94a3b8', marginTop: 8 },
+  emptySubtext: { fontSize: 12, color: '#cbd5e1', marginTop: 4 },
   card: { backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 8, borderRadius: 14, padding: 16 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBox: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },

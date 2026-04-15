@@ -1,12 +1,34 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../stores/auth-store';
-import { notices, myParking } from '../../lib/mock-data';
+import { fetchNotices, fetchParkingForUnit, submitParkingRecord } from '../../lib/mock-data';
+import { NoticeItem, ParkingItem } from '../../lib/types';
 
 export default function MoreScreen() {
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
+  const [noticesList, setNotices] = useState<NoticeItem[]>([]);
+  const [parkingList, setParking] = useState<ParkingItem[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showParkForm, setShowParkForm] = useState(false);
+  const [parkForm, setParkForm] = useState({ visitor: '', plate: '', purpose: '' });
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [n, p] = await Promise.all([
+        fetchNotices(),
+        user ? fetchParkingForUnit(user.unit_id) : Promise.resolve([]),
+      ]);
+      setNotices(n);
+      setParking(p);
+    } catch (e) { console.log('Failed:', e); }
+  }, [user]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+  const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
 
   function handleLogout() {
     Alert.alert('로그아웃', '로그아웃 하시겠습니까?', [
@@ -15,8 +37,24 @@ export default function MoreScreen() {
     ]);
   }
 
+  async function handleParkSubmit() {
+    if (!parkForm.visitor || !parkForm.plate || !user) return;
+    setSubmitting(true);
+    try {
+      await submitParkingRecord(user.unit_id, parkForm.visitor, parkForm.plate, parkForm.purpose);
+      Alert.alert('등록 완료', '방문 차량이 등록되었습니다.');
+      setParkForm({ visitor: '', plate: '', purpose: '' });
+      setShowParkForm(false);
+      await loadData();
+    } catch (e) {
+      Alert.alert('오류', '등록에 실패했습니다.');
+    }
+    setSubmitting(false);
+  }
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
       {/* Profile */}
       <View style={styles.profile}>
         <View style={styles.avatar}>
@@ -30,32 +68,36 @@ export default function MoreScreen() {
       </View>
 
       {/* Notices */}
-      <Text style={styles.sectionTitle}>공지사항</Text>
-      {notices.map(n => (
-        <View key={n.id} style={styles.card}>
-          <View style={styles.cardRow}>
-            {n.is_pinned && <Ionicons name="pin" size={12} color="#2563eb" />}
-            <Text style={styles.cardTitle}>{n.title}</Text>
+      <Text style={styles.sectionTitle}>공지사항 ({noticesList.length})</Text>
+      {noticesList.length === 0 ? (
+        <View style={styles.emptyCard}><Text style={styles.emptyText}>공지사항이 없습니다</Text></View>
+      ) : (
+        noticesList.map(n => (
+          <View key={n.id} style={styles.card}>
+            <View style={styles.cardRow}>
+              {n.is_pinned && <Ionicons name="pin" size={12} color="#2563eb" />}
+              <Text style={styles.cardTitle}>{n.title}</Text>
+            </View>
+            <Text style={styles.cardBody} numberOfLines={2}>{n.content}</Text>
+            <Text style={styles.cardDate}>{n.created_at}</Text>
           </View>
-          <Text style={styles.cardBody} numberOfLines={2}>{n.content}</Text>
-          <Text style={styles.cardDate}>{n.created_at}</Text>
-        </View>
-      ))}
+        ))
+      )}
 
       {/* Parking */}
-      <Text style={styles.sectionTitle}>내 방문 차량</Text>
-      {myParking.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>등록된 방문 차량이 없습니다</Text>
-        </View>
+      <Text style={styles.sectionTitle}>내 방문 차량 ({parkingList.length})</Text>
+      {parkingList.length === 0 ? (
+        <View style={styles.emptyCard}><Text style={styles.emptyText}>등록된 방문 차량이 없습니다</Text></View>
       ) : (
-        myParking.map(p => (
+        parkingList.map(p => (
           <View key={p.id} style={styles.card}>
             <View style={styles.cardRow}>
               <Ionicons name="car" size={16} color="#22c55e" />
               <Text style={styles.cardTitle}>{p.vehicle_number}</Text>
               <View style={styles.statusBadge}>
-                <Text style={styles.statusText}>{p.status === 'entered' ? '입차중' : p.status}</Text>
+                <Text style={styles.statusText}>
+                  {p.status === 'entered' ? '입차중' : p.status === 'registered' ? '등록' : p.status === 'exited' ? '출차' : p.status}
+                </Text>
               </View>
             </View>
             <Text style={styles.cardBody}>{p.visitor_name} · {p.purpose}</Text>
@@ -63,12 +105,29 @@ export default function MoreScreen() {
         ))
       )}
 
-      <TouchableOpacity style={styles.parkBtn}>
-        <Ionicons name="add-circle" size={18} color="#fff" />
-        <Text style={styles.parkBtnText}>방문 차량 등록</Text>
-      </TouchableOpacity>
+      {/* Park Form */}
+      {showParkForm ? (
+        <View style={styles.parkForm}>
+          <TextInput style={styles.input} placeholder="방문자 이름" value={parkForm.visitor} onChangeText={v => setParkForm(p => ({...p, visitor: v}))} />
+          <TextInput style={styles.input} placeholder="차량번호 (예: 12가 3456)" value={parkForm.plate} onChangeText={v => setParkForm(p => ({...p, plate: v}))} />
+          <TextInput style={styles.input} placeholder="방문 목적" value={parkForm.purpose} onChangeText={v => setParkForm(p => ({...p, purpose: v}))} />
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <TouchableOpacity style={[styles.parkBtn, { backgroundColor: '#94a3b8', flex: 1 }]} onPress={() => setShowParkForm(false)}>
+              <Text style={styles.parkBtnText}>취소</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.parkBtn, { flex: 2 }, submitting && { opacity: 0.6 }]} onPress={handleParkSubmit} disabled={submitting}>
+              <Text style={styles.parkBtnText}>{submitting ? '등록 중...' : '등록'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.parkBtn} onPress={() => setShowParkForm(true)}>
+          <Ionicons name="add-circle" size={18} color="#fff" />
+          <Text style={styles.parkBtnText}>방문 차량 등록</Text>
+        </TouchableOpacity>
+      )}
 
-      {/* Menu Items */}
+      {/* Settings */}
       <Text style={styles.sectionTitle}>설정</Text>
       <MenuItem icon="language" label="언어 설정" detail="한국어" />
       <MenuItem icon="notifications" label="알림 설정" detail="ON" />
@@ -115,6 +174,8 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 11, fontWeight: '600', color: '#16a34a' },
   emptyCard: { backgroundColor: '#fff', marginHorizontal: 16, borderRadius: 12, padding: 24, alignItems: 'center' },
   emptyText: { color: '#94a3b8', fontSize: 13 },
+  parkForm: { marginHorizontal: 16, marginTop: 8, backgroundColor: '#fff', borderRadius: 12, padding: 14, gap: 8 },
+  input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12, fontSize: 14, backgroundColor: '#f8fafc' },
   parkBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#22c55e', marginHorizontal: 16, marginTop: 8, padding: 12, borderRadius: 12 },
   parkBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 2, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 10 },
