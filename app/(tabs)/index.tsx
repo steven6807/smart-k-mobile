@@ -1,17 +1,39 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/auth-store';
-import { payments, notices, myRequests, formatPHP } from '../../lib/mock-data';
+import { payments as fallbackPayments, formatPHP, fetchNotices, fetchPaymentsForUnit, fetchMaintenanceForUnit } from '../../lib/mock-data';
+import { NoticeItem, PaymentItem } from '../../lib/types';
 
 export default function HomeScreen() {
   const user = useAuthStore(s => s.user);
-  const pendingPayment = payments.find(p => p.status === 'pending');
-  const overdueCount = payments.filter(p => p.status === 'overdue').length;
-  const latestNotice = notices[0];
-  const openRequests = myRequests.filter(r => r.status === 'open' || r.status === 'in_progress').length;
+  const [paymentsList, setPayments] = useState<PaymentItem[]>(fallbackPayments);
+  const [noticesList, setNotices] = useState<NoticeItem[]>([]);
+  const [openRequests, setOpenRequests] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
+  const loadData = useCallback(async () => {
+    try {
+      const [n, p, m] = await Promise.all([
+        fetchNotices(),
+        user ? fetchPaymentsForUnit(user.unit_id) : Promise.resolve(fallbackPayments),
+        user ? fetchMaintenanceForUnit(user.unit_id) : Promise.resolve([]),
+      ]);
+      if (n.length > 0) setNotices(n);
+      if (p.length > 0) setPayments(p);
+      setOpenRequests(m.filter(r => r.status === 'open' || r.status === 'in_progress').length);
+    } catch (e) { console.log('Failed to fetch:', e); }
+  }, [user]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
+
+  const pendingPayment = paymentsList.find(p => p.status === 'pending');
+  const overdueCount = paymentsList.filter(p => p.status === 'overdue').length;
+  const latestNotice = noticesList[0];
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
       {/* Welcome */}
       <View style={styles.welcomeCard}>
         <View>
@@ -68,7 +90,7 @@ export default function HomeScreen() {
         </View>
         <View style={[styles.statBox, { backgroundColor: '#f0fdf4' }]}>
           <Ionicons name="megaphone-outline" size={20} color="#16a34a" />
-          <Text style={styles.statNum}>{notices.length}</Text>
+          <Text style={styles.statNum}>{noticesList.length}</Text>
           <Text style={styles.statLabel}>공지</Text>
         </View>
       </View>
