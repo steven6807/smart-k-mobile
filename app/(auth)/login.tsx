@@ -14,12 +14,11 @@ export default function LoginScreen() {
   async function handleLogin() {
     setError('');
     setLoading(true);
-    await new Promise(r => setTimeout(r, 500));
-    const ok = login(unitNumber, password);
+    const ok = await login(unitNumber, password);
     if (ok) {
       router.replace('/(tabs)');
     } else {
-      setError('호실 번호 또는 비밀번호가 올바르지 않습니다.');
+      setError('호실 번호 또는 비밀번호가 올바르지 않습니다.\n(비밀번호: 호실번호 4자리, 예: 301 → 0301)');
       setLoading(false);
     }
   }
@@ -63,8 +62,8 @@ export default function LoginScreen() {
           {/* Demo */}
           <View style={styles.demo}>
             <Text style={styles.demoTitle}>테스트 계정:</Text>
-            <TouchableOpacity onPress={() => { setUnitNumber('301'); setPassword('1234'); }} style={styles.demoBtn}>
-              <Text style={styles.demoText}>301호 김민준 (301 / 1234)</Text>
+            <TouchableOpacity onPress={() => { setUnitNumber('301'); setPassword('0301'); }} style={styles.demoBtn}>
+              <Text style={styles.demoText}>301호 (비밀번호: 0301)</Text>
             </TouchableOpacity>
           </View>
         </View>
