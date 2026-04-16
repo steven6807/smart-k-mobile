@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Alert, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Alert, RefreshControl, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../stores/auth-store';
-import { fetchMaintenanceForUnit, submitMaintenanceRequest } from '../../lib/mock-data';
+import { fetchMaintenanceForUnit, submitMaintenanceRequest, uploadPhoto } from '../../lib/mock-data';
 import { MaintenanceItem } from '../../lib/types';
 
 const statusLabels: Record<string, { label: string; color: string; bg: string }> = {
@@ -19,6 +20,7 @@ export default function RequestsScreen() {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [category, setCategory] = useState('plumbing');
+  const [photos, setPhotos] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,14 +36,37 @@ export default function RequestsScreen() {
 
   const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
 
+  async function pickPhoto() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+      allowsMultipleSelection: true,
+      selectionLimit: 3,
+    });
+    if (!result.canceled && result.assets) {
+      setPhotos(prev => [...prev, ...result.assets.map(a => a.uri)].slice(0, 3));
+    }
+  }
+
+  function removePhoto(idx: number) {
+    setPhotos(prev => prev.filter((_, i) => i !== idx));
+  }
+
   async function handleSubmit() {
     if (!title || !user) return;
     setSubmitting(true);
     try {
-      await submitMaintenanceRequest(user.unit_id, title, desc, category);
-      setTitle(''); setDesc(''); setShowForm(false);
-      Alert.alert('접수 완료', '민원이 접수되었습니다. 담당자가 확인 후 처리합니다.');
-      await loadData(); // 새로고침
+      // Upload photos first
+      const requestId = `m_mob_${Date.now()}`;
+      const photoUrls: string[] = [];
+      for (const uri of photos) {
+        const url = await uploadPhoto(uri, requestId);
+        if (url) photoUrls.push(url);
+      }
+      await submitMaintenanceRequest(user.unit_id, title, desc, category, photoUrls);
+      setTitle(''); setDesc(''); setPhotos([]); setShowForm(false);
+      Alert.alert('접수 완료', `민원이 접수되었습니다.${photoUrls.length > 0 ? ` (사진 ${photoUrls.length}장 첨부)` : ''}`);
+      await loadData();
     } catch (e) {
       Alert.alert('오류', '민원 접수에 실패했습니다. 다시 시도해주세요.');
     }
@@ -78,8 +103,26 @@ export default function RequestsScreen() {
           <TextInput style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
             value={desc} onChangeText={setDesc} placeholder="상세 설명..." multiline />
 
+          <Text style={styles.formLabel}>사진 첨부 (최대 3장)</Text>
+          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+            {photos.map((uri, idx) => (
+              <View key={idx} style={{ position: 'relative' }}>
+                <Image source={{ uri }} style={{ width: 80, height: 80, borderRadius: 10 }} />
+                <TouchableOpacity onPress={() => removePhoto(idx)} style={{ position: 'absolute', top: -6, right: -6, backgroundColor: '#ef4444', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="close" size={12} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            {photos.length < 3 && (
+              <TouchableOpacity onPress={pickPhoto} style={{ width: 80, height: 80, borderRadius: 10, borderWidth: 2, borderColor: '#e2e8f0', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' }}>
+                <Ionicons name="camera" size={24} color="#94a3b8" />
+                <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>사진 추가</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
           <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
-            <Text style={styles.submitText}>{submitting ? '접수 중...' : '접수하기'}</Text>
+            <Text style={styles.submitText}>{submitting ? (photos.length > 0 ? '사진 업로드 중...' : '접수 중...') : `접수하기${photos.length > 0 ? ` (사진 ${photos.length}장)` : ''}`}</Text>
           </TouchableOpacity>
         </View>
       )}

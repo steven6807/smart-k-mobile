@@ -58,12 +58,30 @@ export async function fetchParkingForUnit(unitId: string): Promise<ParkingItem[]
   return (data || []) as ParkingItem[];
 }
 
-export async function submitMaintenanceRequest(unitId: string, title: string, description: string, category: string) {
+export async function uploadPhoto(uri: string, requestId: string): Promise<string | null> {
+  try {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const ext = uri.split('.').pop()?.split('?')[0] || 'jpg';
+    const fileName = `${requestId}_${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('maintenance-photos').upload(fileName, blob, { contentType: `image/${ext}` });
+    if (error) { console.log('Upload error:', error); return null; }
+    const { data } = supabase.storage.from('maintenance-photos').getPublicUrl(fileName);
+    return data.publicUrl;
+  } catch (e) { console.log('Photo upload failed:', e); return null; }
+}
+
+export async function submitMaintenanceRequest(unitId: string, title: string, description: string, category: string, photoUrls?: string[]) {
   const today = new Date().toISOString().split('T')[0];
+  const id = `m_mob_${Date.now()}`;
+  const descWithPhotos = photoUrls && photoUrls.length > 0
+    ? `${description}\n\n[첨부 사진 ${photoUrls.length}장]\n${photoUrls.join('\n')}`
+    : description;
   await supabase.from('maintenance_requests').insert({
-    id: `m_mob_${Date.now()}`, unit_id: unitId, requested_by: 'tenant', request_channel: 'app',
-    category, title, description, priority: 'normal', status: 'open', created_at: today, updated_at: today,
+    id, unit_id: unitId, requested_by: 'tenant', request_channel: 'app',
+    category, title, description: descWithPhotos, priority: 'normal', status: 'open', created_at: today, updated_at: today,
   });
+  return id;
 }
 
 export async function submitParkingRecord(unitId: string, visitorName: string, vehicleNumber: string, purpose: string) {
