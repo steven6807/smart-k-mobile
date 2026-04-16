@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useAuthStore } from '../../stores/auth-store';
 import { payments as fallbackPayments, formatPHP, fetchNotices, fetchPaymentsForUnit, fetchMaintenanceForUnit } from '../../lib/mock-data';
 import { NoticeItem, PaymentItem } from '../../lib/types';
@@ -48,10 +49,10 @@ export default function HomeScreen() {
 
       {/* Quick Actions */}
       <View style={styles.quickRow}>
-        <QuickBtn icon="card" label="납부하기" color="#2563eb" />
-        <QuickBtn icon="construct" label="민원접수" color="#f59e0b" />
-        <QuickBtn icon="car" label="주차등록" color="#22c55e" />
-        <QuickBtn icon="megaphone" label="공지사항" color="#8b5cf6" />
+        <QuickBtn icon="card" label="납부하기" color="#2563eb" onPress={() => router.push('/(tabs)/payments')} />
+        <QuickBtn icon="construct" label="민원접수" color="#f59e0b" onPress={() => router.push('/(tabs)/requests')} />
+        <QuickBtn icon="car" label="주차등록" color="#22c55e" onPress={() => router.push('/(tabs)/more')} />
+        <QuickBtn icon="megaphone" label="공지사항" color="#8b5cf6" onPress={() => router.push('/(tabs)/more')} />
       </View>
 
       {/* Payment Status */}
@@ -111,9 +112,9 @@ export default function HomeScreen() {
   );
 }
 
-function QuickBtn({ icon, label, color }: { icon: string; label: string; color: string }) {
+function QuickBtn({ icon, label, color, onPress }: { icon: string; label: string; color: string; onPress?: () => void }) {
   return (
-    <TouchableOpacity style={styles.quickBtn}>
+    <TouchableOpacity style={styles.quickBtn} onPress={onPress}>
       <View style={[styles.quickIcon, { backgroundColor: color + '15' }]}>
         <Ionicons name={icon as any} size={22} color={color} />
       </View>
