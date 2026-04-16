@@ -22,6 +22,14 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="golf"
+        options={{
+          title: '골프',
+          headerTitle: '골프연습장 예약',
+          tabBarIcon: ({ color, size }) => <Ionicons name="golf" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="payments"
         options={{
           title: '관리비',
